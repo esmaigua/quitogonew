@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Reporte de Reservas | Turismo Quito</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body class="bg-light">
+  <div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2>Reporte de Reservas</h2>
+      <button class="btn btn-secondary" onclick="window.location.href='admin-packages.html'">Atrás</button>
+    </div>
+
+    <div id="alert-container"></div>
+
+    <form id="report-form" class="row g-3 mb-4">
+      <div class="col-md-5">
+        <label for="start_date" class="form-label">Fecha de inicio</label>
+        <input type="date" id="start_date" class="form-control" required />
+      </div>
+      <div class="col-md-5">
+        <label for="end_date" class="form-label">Fecha de fin</label>
+        <input type="date" id="end_date" class="form-control" required />
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
+        <button type="submit" class="btn btn-primary w-100">Generar Reporte</button>
+      </div>
+    </form>
+
+    <div id="report-container"></div>
+  </div>
+
+  <script>
+    const BASE_BOOKING_URL = "http://localhost:5003";
+    const token = localStorage.getItem("token");
+
+    if (!token) window.location.href = "login.html";
+
+    document.getElementById("report-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const start = document.getElementById("start_date").value;
+      const end = document.getElementById("end_date").value;
+
+      if (!start || !end) {
+        return showAlert("Por favor selecciona ambas fechas", "warning");
+      }
+
+      try {
+        const res = await fetch(`${BASE_BOOKING_URL}/bookings/report?start_date=${start}&end_date=${end}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Error al obtener reporte");
+
+        renderReport(data.report, start, end);
+      } catch (err) {
+        showAlert(err.message || "Error inesperado", "danger");
+      }
+    });
+
+    function showAlert(msg, type = "info") {
+      document.getElementById("alert-container").innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+          ${msg}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      `;
+    }
+
+    function renderReport(data, start, end) {
+      if (!data || data.length === 0) {
+        document.getElementById("report-container").innerHTML = `<p>No se encontraron reservas en este periodo.</p>`;
+        return;
+      }
+
+      let html = `
+        <h5 class="mb-3">Reporte del ${start} al ${end}</h5>
+        <table class="table table-bordered table-striped">
+          <thead>
+            <tr>
+              <th>Nombre del Paquete</th>
+              <th>Ubicación</th>
+              <th>Total Reservas</th>
+              <th>Total Participantes</th>
+              <th>Promedio Participantes</th>
+              <th>Total Recaudado</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      data.forEach(r => {
+        html += `
+          <tr>
+            <td>${r.package_name}</td>
+            <td>${r.package_location}</td>
+            <td>${r.total_bookings}</td>
+            <td>${r.total_participants}</td>
+            <td>${r.avg_participants.toFixed(1)}</td>
+            <td>$${r.total_revenue.toFixed(2)}</td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table>`;
+      document.getElementById("report-container").innerHTML = html;
+    }
+  </script>
+</body>
+</html>

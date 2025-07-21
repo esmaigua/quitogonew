@@ -1,0 +1,194 @@
+services:
+  # ===============================
+  # SERVICE REGISTRY (CONSUL)
+  # ===============================
+  consul:
+    image: hashicorp/consul:1.16
+    container_name: consul
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+    command: agent -server -ui -node=server-1 -bootstrap-expect=1 -client=0.0.0.0
+    networks:
+      - microservices
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ===============================
+  # DATABASES
+  # ===============================
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - microservices
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d auth_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - microservices
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ===============================
+  # MICROSERVICES
+  # ===============================
+  auth-service:
+    build: ./auth-service
+    container_name: auth_service
+    environment:
+      # Database
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/auth_db
+      - DB_CONNECT_RETRIES=30
+      - DB_CONNECT_DELAY=5
+      - SECRET_KEY=auth-secret-key-change-in-production
+      
+      # Service Registry
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      
+      # Service Configuration
+      - SERVICE_NAME=auth-service
+      - SERVICE_ID=auth-service-1
+      - SERVICE_HOST=auth-service
+      - SERVICE_PORT=5000
+      
+      # Flask
+      - FLASK_DEBUG=false
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    networks:
+      - microservices
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  package-service:
+    build: ./package-service
+    container_name: package_service
+    environment:
+      # Database
+      - PG_HOST=postgres
+      - PG_DATABASE=packages_db
+      - PG_USER=postgres
+      - PG_PASSWORD=postgres123
+      - PG_PORT=5432
+      
+      # Service Registry
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      
+      # Service Configuration
+      - SERVICE_NAME=package-service
+      - SERVICE_ID=package-service-1
+      - SERVICE_HOST=package-service
+      - SERVICE_PORT=5002
+      
+      # Flask
+      - FLASK_DEBUG=false
+    ports:
+      - "5002:5002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    networks:
+      - microservices
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  booking-service:
+    build: ./booking-service
+    container_name: booking_service
+    environment:
+      # Database
+      - MONGO_URI=mongodb://admin:admin123@mongodb:27017/
+      - MONGO_DATABASE=bookings_db
+      
+      # Service Registry
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      
+      # Service Configuration
+      - SERVICE_NAME=booking-service
+      - SERVICE_ID=booking-service-1
+      - SERVICE_HOST=booking-service
+      - SERVICE_PORT=5003
+      
+      # Flask
+      - FLASK_DEBUG=false
+    ports:
+      - "5003:5003"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      package-service:
+        condition: service_healthy
+    networks:
+      - microservices
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mongodb_data:
+
+networks:
+  microservices:
+    driver: bridge
