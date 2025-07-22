@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: docker/Dockerfile
+    container_name: frontend
+    ports:
+      - "8080:80"
+    environment:
+      - SERVICE_NAME=frontend
+      - SERVICE_ID=frontend-1
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+    networks:
+      - microservices
+    restart: unless-stopped
+
+networks:
+  microservices:
+    external: true
+    name: quitogonew_microservices  # Nombre EXACTO de la red existente
